@@ -5,7 +5,7 @@ on:
     branches: [ "main" ]
 
 env:
-  # Tu imagen en minúsculas (asegúrate que está bien escrito)
+  # Asegúrate de que esto está en minúsculas (ej: ghcr.io/mechaes/...)
   IMAGE_NAME: ghcr.io/mechaes/mi-web-app
   SITE_INDEX: index.html
 
@@ -35,17 +35,45 @@ jobs:
           docker push $IMAGE_NAME:latest
           docker push $IMAGE_NAME:${{ github.sha }}
 
-      - name: Update index.html
+      - name: Actualizar index.html (Python Script)
         run: |
-          NEW_LINE="<p>Build: $(date -u +'%Y-%m-%dT%H:%M:%SZ') - SHA: ${{ github.sha }} - Image: $IMAGE_NAME:${{ github.sha }}</p>"
+          # Usamos Python para evitar errores de sintaxis con sed
+          python3 -c "
+          import os
+          import datetime
+
+          # Configuración
+          file_path = '${{ env.SITE_INDEX }}'
+          sha = '${{ github.sha }}'
+          image = '${{ env.IMAGE_NAME }}'
+          date = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
           
-          # ESTRATEGIA SEGURA:
-          # 1. Borramos el bloque de info antiguo si existe (para limpiar)
-          sed -i '//,//d' $SITE_INDEX
+          # El nuevo texto a insertar
+          new_line = f'<p>Build: {date} - SHA: {sha} - Image: {image}:{sha}</p>'
+          block_start = ''
+          block_end = ''
           
-          # 2. Insertamos el bloque nuevo justo antes de cerrar el body
-          # Usamos arrobas @ como separadores para que no fallen las barras / de la URL
-          sed -i "s@</body>@\n$NEW_LINE\n\n</body>@" $SITE_INDEX
+          try:
+              with open(file_path, 'r') as f:
+                  content = f.read()
+
+              # Si ya existen las etiquetas, reemplazamos lo de dentro
+              if block_start in content and block_end in content:
+                  start = content.find(block_start) + len(block_start)
+                  end = content.find(block_end)
+                  new_content = content[:start] + '\n' + new_line + '\n' + content[end:]
+              else:
+                  # Si no existen, las añadimos al final del body
+                  new_content = content.replace('</body>', f'{block_start}\n{new_line}\n{block_end}\n</body>')
+
+              with open(file_path, 'w') as f:
+                  f.write(new_content)
+              print('✅ index.html actualizado correctamente')
+
+          except Exception as e:
+              print(f'❌ Error actualizando el archivo: {e}')
+              exit(1)
+          "
 
       - name: Commit and push
         run: |
